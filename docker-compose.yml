@@ -1,0 +1,125 @@
+version: "3.9"
+
+# ── Red interna ────────────────────────────────────────────────────────────────
+networks:
+  atus-net:
+    driver: bridge
+
+# ── Volúmenes compartidos ──────────────────────────────────────────────────────
+volumes:
+  atus-data:          # CSVs raw, Parquet generados, reportes JSON
+
+services:
+
+  # ── Ray Head Node ────────────────────────────────────────────────────────────
+  ray-head:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: atus-ray-head
+    command: >
+      bash -c "
+        ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265
+        --num-cpus=2 --block &
+        streamlit run dashboard/app.py
+          --server.port=8501 --server.address=0.0.0.0 --server.headless=true
+      "
+    ports:
+      - "8501:8501"   # Streamlit dashboard
+      - "8265:8265"   # Ray dashboard
+      - "6379:6379"   # Ray GCS (workers)
+    volumes:
+      - atus-data:/app/data
+      # Monta tus CSVs: ajusta la ruta izquierda a donde están en tu máquina
+      - ./data/raw:/app/data/raw:ro
+    networks:
+      - atus-net
+    environment:
+      - RAY_DISABLE_IMPORT_WARNING=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8265"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ── Ray Worker 1 ─────────────────────────────────────────────────────────────
+  ray-worker-1:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: atus-worker-1
+    depends_on:
+      ray-head:
+        condition: service_healthy
+    environment:
+      - RAY_HEAD_ADDRESS=ray-head:6379
+    volumes:
+      - atus-data:/app/data
+    networks:
+      - atus-net
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+
+  # ── Ray Worker 2 ─────────────────────────────────────────────────────────────
+  ray-worker-2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: atus-worker-2
+    depends_on:
+      ray-head:
+        condition: service_healthy
+    environment:
+      - RAY_HEAD_ADDRESS=ray-head:6379
+    volumes:
+      - atus-data:/app/data
+    networks:
+      - atus-net
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+
+  # ── ETL (contenedor one-shot) ─────────────────────────────────────────────────
+  # Corre y se detiene. Úsalo para transformar CSVs a Parquet.
+  etl:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: atus-etl
+    command: python src/etl.py ray
+    profiles:
+      - etl                   # Solo corre con: docker compose --profile etl up etl
+    depends_on:
+      ray-head:
+        condition: service_healthy
+    environment:
+      - RAY_ADDRESS=ray://ray-head:10001
+    volumes:
+      - atus-data:/app/data
+      - ./data/raw:/app/data/raw:ro
+    networks:
+      - atus-net
+
+  # ── Análisis (contenedor one-shot) ───────────────────────────────────────────
+  analisis:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: atus-analisis
+    command: python src/analisis.py
+    profiles:
+      - analisis              # Solo corre con: docker compose --profile analisis up analisis
+    depends_on:
+      ray-head:
+        condition: service_healthy
+    environment:
+      - RAY_ADDRESS=ray://ray-head:10001
+    volumes:
+      - atus-data:/app/data
+    networks:
+      - atus-net
