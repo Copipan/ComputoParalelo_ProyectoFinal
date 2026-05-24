@@ -11,12 +11,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import ray
 
-# ── Rutas absolutas dentro del contenedor ───────────────────────────────────
 BASE_DIR    = "/app"
 RAW_DIR     = os.path.join(BASE_DIR, "data", "raw")
 PARQUET_DIR = os.path.join(BASE_DIR, "data", "parquet")
 
-# ── Columnas canónicas ───────────────────────────────────────────────────────
 COLUMNAS = [
     "COBERTURA", "ID_ENTIDAD", "ID_MUNICIPIO", "ANIO", "MES",
     "ID_HORA", "ID_MINUTO", "ID_DIA", "DIASEMANA",
@@ -32,8 +30,7 @@ COLUMNAS = [
 ]
 
 COLUMNAS_NUMERICAS = [
-    "ID_ENTIDAD", "ID_MUNICIPIO", "ANIO", "MES", "ID_HORA", "ID_MINUTO",
-    "ID_DIA", "DIASEMANA", "URBANA", "SUBURBANA",
+    "ID_ENTIDAD", "ID_MUNICIPIO", "ANIO", "MES", "ID_HORA", "ID_MINUTO", "ID_DIA",
     "AUTOMOVIL", "CAMPASAJ", "MICROBUS", "PASCAMION", "OMNIBUS",
     "TRANVIA", "CAMIONETA", "CAMION", "TRACTOR", "FERROCARRI",
     "MOTOCICLET", "BICICLETA", "OTROVEHIC", "ID_EDAD",
@@ -75,8 +72,26 @@ TIPOS_ACCIDENTE = {
 }
 
 
+def _fix_encoding(s: str) -> str:
+    """Corrige strings mal decodificados de latin-1 leído como utf-8."""
+    import unicodedata
+    try:
+        # Intenta re-encodear: si vino mal, esto lo restaura
+        fixed = s.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        fixed = s
+    return unicodedata.normalize("NFC", fixed).strip()
+
+
+def _fix_str_col(series: pd.Series) -> pd.Series:
+    """Aplica corrección de encoding a una columna de strings."""
+    return series.astype(str).apply(
+        lambda x: _fix_encoding(x) if x not in ("nan", "None", "") else pd.NA
+    )
+
+
 def limpiar_csv(path: str) -> pd.DataFrame:
-    """Lee y limpia un CSV del ATUS."""
+    # latin-1 es el encoding oficial del INEGI — siempre primero
     try:
         df = pd.read_csv(path, encoding="latin-1", low_memory=False)
     except Exception:
@@ -93,9 +108,15 @@ def limpiar_csv(path: str) -> pd.DataFrame:
     df = df[df["ANIO"].notna()]
     df = df[df["ID_ENTIDAD"].between(1, 32, inclusive="both")]
 
-    df["NOM_ENTIDAD"]  = df["ID_ENTIDAD"].map(ENTIDADES)
-    df["NOM_CAUSA"]    = df["CAUSAACCI"].map(CAUSAS)
-    df["NOM_TIPACCID"] = df["TIPACCID"].map(TIPOS_ACCIDENTE)
+    df["NOM_ENTIDAD"] = df["ID_ENTIDAD"].map(ENTIDADES)
+
+    # Columnas string: corregir encoding y limpiar
+    if "CAUSAACCI" in df.columns:
+        df["NOM_CAUSA"] = _fix_str_col(df["CAUSAACCI"])
+    if "TIPACCID" in df.columns:
+        df["NOM_TIPACCID"] = _fix_str_col(df["TIPACCID"])
+    if "DIASEMANA" in df.columns:
+        df["DIASEMANA"] = _fix_str_col(df["DIASEMANA"])
 
     muertos_cols = [c for c in ["CONDMUERTO","PASAMUERTO","PEATMUERTO","CICLMUERTO","OTROMUERTO","NEMUERTO"] if c in df.columns]
     heridos_cols = [c for c in ["CONDHERIDO","PASAHERIDO","PEATHERIDO","CICLHERIDO","OTROHERIDO","NEHERIDO"] if c in df.columns]
@@ -107,7 +128,6 @@ def limpiar_csv(path: str) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-# ── Tarea Ray ────────────────────────────────────────────────────────────────
 @ray.remote
 def procesar_archivo_ray(path_abs: str, salida_dir_abs: str) -> dict:
     import pandas as pd
@@ -128,7 +148,6 @@ def procesar_archivo_ray(path_abs: str, salida_dir_abs: str) -> dict:
     return {"archivo": nombre, "registros": len(df), "ruta": salida}
 
 
-# ── ETL secuencial (benchmark) ───────────────────────────────────────────────
 def etl_secuencial(raw_dir: str, parquet_dir: str) -> list:
     archivos = sorted(glob.glob(os.path.join(raw_dir, "*.csv")))
     resultados = []
@@ -142,30 +161,20 @@ def etl_secuencial(raw_dir: str, parquet_dir: str) -> list:
     return resultados
 
 
-# ── ETL distribuido ──────────────────────────────────────────────────────────
 def etl_distribuido(raw_dir: str, parquet_dir: str) -> list:
-    # Leer dirección del head desde variable de entorno o usar default
-    head_address = os.environ.get("RAY_ADDRESS", "ray-head:6379")
-
+    # Conectar al Ray local (ya iniciado por ray start en el head)
     if not ray.is_initialized():
-        ray.init(address=head_address, ignore_reinit_error=True)
+        ray.init(address="auto", ignore_reinit_error=True)
 
     archivos = sorted(glob.glob(os.path.join(raw_dir, "*.csv")))
     if not archivos:
         raise FileNotFoundError(f"No se encontraron CSVs en {raw_dir}")
 
     print(f"  Archivos encontrados: {len(archivos)}")
-
-    tamanio_lote = 4
-    resultados = []
-    for i in range(0, len(archivos), tamanio_lote):
-        lote = archivos[i:i+tamanio_lote]
-        futures = [procesar_archivo_ray.remote(p, parquet_dir) for p in lote]
-        resultados.extend(ray.get(futures))
-    return resultados
+    futures = [procesar_archivo_ray.remote(p, parquet_dir) for p in archivos]
+    return ray.get(futures)
 
 
-# ── Entrada principal ─────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import sys
 
@@ -173,19 +182,16 @@ if __name__ == "__main__":
     parquet_dir = PARQUET_DIR
     os.makedirs(parquet_dir, exist_ok=True)
 
-    modo = sys.argv[1] if len(sys.argv) > 1 else "ray"
-
+    # ETL siempre corre secuencial en el head — los CSVs solo están montados ahí.
+    # El procesamiento distribuido ocurre en analisis.py sobre los Parquet compartidos.
     print(f"\n{'='*50}")
-    print(f"  ETL ATUS — modo: {modo.upper()}")
+    print(f"  ETL ATUS — modo: SECUENCIAL (head)")
     print(f"  raw_dir     : {raw_dir}")
     print(f"  parquet_dir : {parquet_dir}")
     print(f"{'='*50}\n")
 
     t0 = time.time()
-    if modo == "secuencial":
-        resultados = etl_secuencial(raw_dir, parquet_dir)
-    else:
-        resultados = etl_distribuido(raw_dir, parquet_dir)
+    resultados = etl_secuencial(raw_dir, parquet_dir)
     t1 = time.time()
 
     total = sum(r["registros"] for r in resultados)

@@ -14,28 +14,32 @@ import streamlit as st
 
 # ── Config ───────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="ATUS México — Accidentes Viales",
+    page_title="ATUS Mexico — Accidentes Viales",
     page_icon="🚦",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-RESULTS_PATH = os.environ.get("RESULTS_PATH", "data/reports/resultados.json")
+RESULTS_PATH = os.environ.get("RESULTS_PATH", "/app/data/reports/resultados.json")
 
 MESES = {1:"Ene",2:"Feb",3:"Mar",4:"Abr",5:"May",6:"Jun",
           7:"Jul",8:"Ago",9:"Sep",10:"Oct",11:"Nov",12:"Dic"}
 
-DIAS = {1:"Lunes",2:"Martes",3:"Miércoles",4:"Jueves",
-        5:"Viernes",6:"Sábado",7:"Domingo"}
+DIAS = {1:"Lunes",2:"Martes",3:"Miercoles",4:"Jueves",
+        5:"Viernes",6:"Sabado",7:"Domingo"}
 
 PALETTE = px.colors.sequential.Reds_r
 
 
 # ── Carga de datos ────────────────────────────────────────────────────────────
-@st.cache_data
 def cargar_resultados():
     if not os.path.exists(RESULTS_PATH):
         return None
+    mtime = os.path.getmtime(RESULTS_PATH)
+    return _cargar_json_cacheado(mtime)
+
+@st.cache_data
+def _cargar_json_cacheado(mtime):
     with open(RESULTS_PATH, encoding="utf-8") as f:
         return json.load(f)
 
@@ -47,12 +51,12 @@ def df_from(lista):
 # ── Estilos ──────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&family=Syne:wght@700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&family=Syne:wght@700;800&family=Roboto:wght@400;500;700&display=swap');
 
-  html, body, [class*="css"] { font-family: 'Space Grotesk', sans-serif; }
+  html, body, [class*="css"] { font-family: 'Space Grotesk', 'Roboto', sans-serif; }
 
   .titulo-hero {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Syne', 'Roboto', sans-serif;
     font-size: 2.6rem;
     font-weight: 800;
     line-height: 1.1;
@@ -69,21 +73,28 @@ st.markdown("""
     border: 1px solid #c0392b33;
     border-left: 4px solid #c0392b;
     border-radius: 12px;
-    padding: 1.2rem 1.4rem;
+    padding: 0.9rem 0.8rem;
     text-align: center;
+    min-height: 90px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
   .kpi-num {
     font-family: 'Syne', sans-serif;
-    font-size: 2rem;
+    font-size: 1.4rem;
     font-weight: 800;
     color: #e74c3c;
+    word-break: break-all;
+    line-height: 1.2;
   }
   .kpi-label {
-    font-size: 0.78rem;
+    font-size: 0.7rem;
     color: #aaa;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-top: 0.2rem;
+    letter-spacing: 0.06em;
+    margin-top: 0.3rem;
+    line-height: 1.3;
   }
 
   .section-title {
@@ -126,9 +137,9 @@ datos = cargar_resultados()
 
 st.markdown("""
 <div class="titulo-hero">
-  🚦 ATUS México<br>
+   ATUS Mexico<br>
   <span style="font-size:1.1rem;font-weight:400;opacity:0.85">
-  Accidentes de Tránsito Terrestre · 1997–2024
+  Accidentes de Transito Terrestre · 1997–2024
   </span>
 </div>
 """, unsafe_allow_html=True)
@@ -146,7 +157,7 @@ kpis = [
     (f"{g['total_muertos']:,}", "Fallecidos"),
     (f"{g['total_heridos']:,}", "Heridos"),
     (f"{g['con_muertos']:,}", "Accidentes con fallecidos"),
-    (f"{g['indice_gravedad_promedio']:.2f}", "Índice de gravedad promedio"),
+    (f"{g['indice_gravedad_promedio']:.2f}", "Indice de gravedad promedio"),
 ]
 
 cols = st.columns(len(kpis))
@@ -160,8 +171,8 @@ for col, (num, label) in zip(cols, kpis):
         """, unsafe_allow_html=True)
 
 # ── Pestañas ──────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["🗺️ Por Estado", "🏙️ Municipios", "🕐 Temporal", "⚠️ Causas", "📊 Benchmark"]
+tab1, tab2, tab3, tab4 = st.tabs(
+    ["Por Estado", "Municipios", "Temporal", "Causas"]
 )
 
 # ── Tab 1: Entidades ──────────────────────────────────────────────────────────
@@ -276,17 +287,21 @@ with tab3:
             )
             st.plotly_chart(fig_theme(fig), use_container_width=True)
 
-    st.markdown('<div class="section-title">Accidentes por Día de Semana</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Accidentes por Dia de Semana</div>', unsafe_allow_html=True)
     df_dia = df_from(temp["por_dia_semana"])
     if not df_dia.empty:
-        df_dia["dia_nombre"] = df_dia["DIASEMANA"].map(DIAS)
-        fig = px.bar(
-            df_dia, x="dia_nombre", y="total",
-            color="total", color_continuous_scale="Reds",
-            labels={"dia_nombre": "Día", "total": "Accidentes"},
-            category_orders={"dia_nombre": list(DIAS.values())},
-        )
-        st.plotly_chart(fig_theme(fig), use_container_width=True)
+        ORDEN_DIAS = ["Lunes","Martes","Miercoles","Jueves","Viernes","Sabado","Domingo"]
+        df_dia["DIASEMANA"] = df_dia["DIASEMANA"].astype(str).str.strip()
+        df_dia = df_dia[df_dia["DIASEMANA"].isin(ORDEN_DIAS)]
+        if not df_dia.empty:
+            fig = px.bar(
+                df_dia,
+                x="DIASEMANA", y="total",
+                color="total", color_continuous_scale="Reds",
+                labels={"DIASEMANA": "Día", "total": "Accidentes"},
+                category_orders={"DIASEMANA": ORDEN_DIAS},
+            )
+            st.plotly_chart(fig_theme(fig), use_container_width=True)
 
 # ── Tab 4: Causas ─────────────────────────────────────────────────────────────
 with tab4:
@@ -330,55 +345,7 @@ with tab4:
         )
         st.plotly_chart(fig_theme(fig), use_container_width=True)
 
-# ── Tab 5: Benchmark ──────────────────────────────────────────────────────────
-with tab5:
-    st.markdown('<div class="section-title">Rendimiento: Ray vs Pandas Secuencial</div>', unsafe_allow_html=True)
 
-    benchmark_path = "data/reports/benchmark.json"
-    if os.path.exists(benchmark_path):
-        with open(benchmark_path) as f:
-            bm = json.load(f)
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown(f"""
-            <div class="kpi-card">
-              <div class="kpi-num">{bm['tiempo_secuencial_s']}s</div>
-              <div class="kpi-label">Pandas Secuencial</div>
-            </div>""", unsafe_allow_html=True)
-        with col2:
-            st.markdown(f"""
-            <div class="kpi-card">
-              <div class="kpi-num">{bm['tiempo_ray_s']}s</div>
-              <div class="kpi-label">Ray Distribuido</div>
-            </div>""", unsafe_allow_html=True)
-        with col3:
-            st.markdown(f"""
-            <div class="kpi-card">
-              <div class="kpi-num">{bm['speedup']}x</div>
-              <div class="kpi-label">Speedup</div>
-            </div>""", unsafe_allow_html=True)
-
-        fig = go.Figure(go.Bar(
-            x=["Pandas Secuencial", "Ray Distribuido"],
-            y=[bm["tiempo_secuencial_s"], bm["tiempo_ray_s"]],
-            marker_color=["#555", "#e74c3c"],
-            text=[f"{bm['tiempo_secuencial_s']}s", f"{bm['tiempo_ray_s']}s"],
-            textposition="auto",
-        ))
-        fig.update_layout(title=f"Tiempo de análisis — {bm['registros']:,} registros", yaxis_title="Segundos")
-        st.plotly_chart(fig_theme(fig), use_container_width=True)
-
-    else:
-        st.info("Ejecuta el benchmark para ver resultados:\n```bash\npython src/analisis.py benchmark\n```")
-        st.markdown("""
-        **¿Qué mide el benchmark?**
-
-        Compara el tiempo de ejecutar los mismos 5 análisis (por entidad, temporal, causas, gravedad, municipios)
-        de forma secuencial con Pandas vs distribuida con Ray en paralelo.
-
-        El speedup depende del número de núcleos disponibles en el nodo.
-        """)
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("""

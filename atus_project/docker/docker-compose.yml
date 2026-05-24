@@ -1,15 +1,12 @@
-# ── Red interna ────────────────────────────────────────────────────────────────
 networks:
   atus-net:
     driver: bridge
 
-# ── Volúmenes compartidos ──────────────────────────────────────────────────────
 volumes:
   atus-data:
 
 services:
 
-  # ── Ray Head Node ────────────────────────────────────────────────────────────
   ray-head:
     build:
       context: ..
@@ -17,9 +14,7 @@ services:
     container_name: atus-ray-head
     command: >
       bash -c "
-        ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265
-        --node-ip-address=$(hostname -i)
-        --num-cpus=2 --block &
+        ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265 --num-cpus=2 &&
         streamlit run dashboard/app.py
           --server.port=8501 --server.address=0.0.0.0 --server.headless=true
       "
@@ -30,30 +25,22 @@ services:
     volumes:
       - atus-data:/app/data
       - ../data/raw:/app/data/raw:ro
-      - ../src:/app/src:ro
+      - ../src:/app/src
+      - ../dashboard:/app/dashboard
     networks:
       - atus-net
     environment:
       - RAY_DISABLE_IMPORT_WARNING=1
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8265/"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
 
-  # ── Ray Worker 1 ─────────────────────────────────────────────────────────────
   ray-worker-1:
     build:
       context: ..
       dockerfile: docker/Dockerfile.worker
     container_name: atus-worker-1
     depends_on:
-      ray-head:
-        condition: service_healthy
+      - ray-head
     volumes:
       - atus-data:/app/data
-      - ../data/raw:/app/data/raw:ro
     networks:
       - atus-net
     deploy:
@@ -62,18 +49,15 @@ services:
           cpus: "2"
           memory: 4G
 
-  # ── Ray Worker 2 ─────────────────────────────────────────────────────────────
   ray-worker-2:
     build:
       context: ..
       dockerfile: docker/Dockerfile.worker
     container_name: atus-worker-2
     depends_on:
-      ray-head:
-        condition: service_healthy
+      - ray-head
     volumes:
       - atus-data:/app/data
-      - ../data/raw:/app/data/raw:ro
     networks:
       - atus-net
     deploy:
@@ -81,45 +65,3 @@ services:
         limits:
           cpus: "2"
           memory: 4G
-
-  # ── ETL (one-shot) ────────────────────────────────────────────────────────────
-  etl:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    container_name: atus-etl
-    command: python src/etl.py ray
-    profiles:
-      - etl
-    depends_on:
-      ray-head:
-        condition: service_healthy
-    environment:
-      - RAY_ADDRESS=ray://ray-head:10001
-    volumes:
-      - atus-data:/app/data
-      - ../data/raw:/app/data/raw:ro
-      - ../src:/app/src:ro
-    networks:
-      - atus-net
-
-  # ── Análisis (one-shot) ───────────────────────────────────────────────────────
-  analisis:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    container_name: atus-analisis
-    command: python src/analisis.py
-    profiles:
-      - analisis
-    depends_on:
-      ray-head:
-        condition: service_healthy
-    environment:
-      - RAY_ADDRESS=ray://ray-head:10001
-    volumes:
-      - atus-data:/app/data
-      - ../data/raw:/app/data/raw:ro
-      - ../src:/app/src:ro
-    networks:
-      - atus-net

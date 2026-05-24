@@ -58,6 +58,14 @@ def analisis_por_municipio(df, top_n: int = 50) -> dict:
 
 @ray.remote
 def analisis_temporal(df) -> dict:
+    import pandas as pd
+
+    # Forzar numérico en columnas que pueden venir como string
+    df = df.copy()
+    df["ID_HORA"] = pd.to_numeric(df["ID_HORA"], errors="coerce")
+    df["MES"]     = pd.to_numeric(df["MES"],     errors="coerce")
+    df["ANIO"]    = pd.to_numeric(df["ANIO"],    errors="coerce")
+
     por_hora = (
         df[df["ID_HORA"].between(0, 23)]
         .groupby("ID_HORA")
@@ -75,8 +83,10 @@ def analisis_temporal(df) -> dict:
         .to_dict(orient="records")
     )
 
+    # DIASEMANA viene como string directo del INEGI
+    DIAS_ORD = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
     por_dia_semana = (
-        df[df["DIASEMANA"].between(1, 7)]
+        df[df["DIASEMANA"].isin(DIAS_ORD)]
         .groupby("DIASEMANA")
         .size()
         .reset_index(name="total")
@@ -84,7 +94,8 @@ def analisis_temporal(df) -> dict:
     )
 
     por_anio = (
-        df.groupby("ANIO")
+        df.dropna(subset=["ANIO"])
+        .groupby("ANIO")
         .agg(
             total=("MES", "count"),
             muertos=("TOTAL_MUERTOS", "sum"),
@@ -105,6 +116,7 @@ def analisis_temporal(df) -> dict:
 
 @ray.remote
 def analisis_causas(df) -> dict:
+
     causas = (
         df.dropna(subset=["NOM_CAUSA"])
         .groupby("NOM_CAUSA")
@@ -132,6 +144,7 @@ def analisis_causas(df) -> dict:
 
 @ray.remote
 def analisis_gravedad(df) -> dict:
+
     # Accidentes con fallecidos
     graves = df[df["TOTAL_MUERTOS"] > 0]
     por_entidad_graves = (
@@ -168,24 +181,22 @@ def ejecutar_analisis(parquet_dir: str, reports_dir: str) -> dict:
     print("Cargando datos...")
     t0 = time.time()
     df = leer_parquet_todos(parquet_dir)
-    cols_needed = [
-        "ID_ENTIDAD", "NOM_ENTIDAD", "ID_MUNICIPIO", "ANIO", "MES",
-        "ID_HORA", "DIASEMANA", "TOTAL_MUERTOS", "TOTAL_HERIDOS",
-        "GRAVEDAD", "NOM_CAUSA", "NOM_TIPACCID"
-    ]
-    df = df[[c for c in cols_needed if c in df.columns]]        
     print(f"  {len(df):,} registros cargados ({time.time()-t0:.1f}s)")
 
-    # Poner el DataFrame en el object store de Ray una sola vez
-    df_ref = ray.put(df)
+    # Subconjuntos de columnas por tarea — reduce memoria en workers
+    ref_entidad   = ray.put(df[["ID_ENTIDAD","NOM_ENTIDAD","ANIO","TOTAL_MUERTOS","TOTAL_HERIDOS","GRAVEDAD"]])
+    ref_municipio = ray.put(df[["ID_ENTIDAD","NOM_ENTIDAD","ID_MUNICIPIO","ANIO","TOTAL_MUERTOS","TOTAL_HERIDOS"]])
+    ref_temporal  = ray.put(df[["ID_HORA","MES","DIASEMANA","ANIO","TOTAL_MUERTOS","TOTAL_HERIDOS"]])
+    ref_causas    = ray.put(df[["NOM_CAUSA","NOM_TIPACCID","ANIO","TOTAL_MUERTOS","TOTAL_HERIDOS"]])
+    ref_gravedad  = ray.put(df[["ID_ENTIDAD","NOM_ENTIDAD","TOTAL_MUERTOS","TOTAL_HERIDOS","GRAVEDAD"]])
 
     print("Lanzando análisis distribuido...")
     t1 = time.time()
-    fut_entidad   = analisis_por_entidad.remote(df_ref)
-    fut_municipio = analisis_por_municipio.remote(df_ref)
-    fut_temporal  = analisis_temporal.remote(df_ref)
-    fut_causas    = analisis_causas.remote(df_ref)
-    fut_gravedad  = analisis_gravedad.remote(df_ref)
+    fut_entidad   = analisis_por_entidad.remote(ref_entidad)
+    fut_municipio = analisis_por_municipio.remote(ref_municipio)
+    fut_temporal  = analisis_temporal.remote(ref_temporal)
+    fut_causas    = analisis_causas.remote(ref_causas)
+    fut_gravedad  = analisis_gravedad.remote(ref_gravedad)
 
     resultados = {
         "entidades":   ray.get(fut_entidad),
@@ -259,10 +270,15 @@ def benchmark(parquet_dir: str) -> dict:
 
 if __name__ == "__main__":
     import sys
-    parquet_dir = "data/parquet"
-    reports_dir = "data/reports"
+    parquet_dir = "/app/data/parquet"
+    reports_dir = "/app/data/reports"
+    os.makedirs(reports_dir, exist_ok=True)
 
     if len(sys.argv) > 1 and sys.argv[1] == "benchmark":
-        benchmark(parquet_dir)
+        resultado = benchmark(parquet_dir)
+        bm_path = os.path.join(reports_dir, "benchmark.json")
+        with open(bm_path, "w", encoding="utf-8") as f:
+            json.dump(resultado, f, ensure_ascii=False, indent=2)
+        print(f"Benchmark guardado en: {bm_path}")
     else:
         ejecutar_analisis(parquet_dir, reports_dir)
