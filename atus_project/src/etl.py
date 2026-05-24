@@ -155,8 +155,14 @@ def etl_distribuido(raw_dir: str, parquet_dir: str) -> list:
         raise FileNotFoundError(f"No se encontraron CSVs en {raw_dir}")
 
     print(f"  Archivos encontrados: {len(archivos)}")
-    futures = [procesar_archivo_ray.remote(p, parquet_dir) for p in archivos]
-    return ray.get(futures)
+
+    tamanio_lote = 4
+    resultados = []
+    for i in range(0, len(archivos), tamanio_lote):
+        lote = archivos[i:i+tamanio_lote]
+        futures = [procesar_archivo_ray.remote(p, parquet_dir) for p in lote]
+        resultados.extend(ray.get(futures))
+    return resultados
 
 
 # ── Entrada principal ─────────────────────────────────────────────────────────

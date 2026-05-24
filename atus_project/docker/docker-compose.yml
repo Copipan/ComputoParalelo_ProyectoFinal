@@ -18,6 +18,7 @@ services:
     command: >
       bash -c "
         ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265
+        --node-ip-address=$(hostname -i)
         --num-cpus=2 --block &
         streamlit run dashboard/app.py
           --server.port=8501 --server.address=0.0.0.0 --server.headless=true
@@ -29,16 +30,17 @@ services:
     volumes:
       - atus-data:/app/data
       - ../data/raw:/app/data/raw:ro
+      - ../src:/app/src:ro
     networks:
       - atus-net
     environment:
       - RAY_DISABLE_IMPORT_WARNING=1
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import ray; ray.init(address='auto'); print('ok')\" || exit 1"]
-      interval: 40s
-      timeout: 20s
-      retries: 8
-      start_period: 30s
+      test: ["CMD-SHELL", "curl -sf http://localhost:8265/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   # ── Ray Worker 1 ─────────────────────────────────────────────────────────────
   ray-worker-1:
@@ -51,13 +53,14 @@ services:
         condition: service_healthy
     volumes:
       - atus-data:/app/data
+      - ../data/raw:/app/data/raw:ro
     networks:
       - atus-net
     deploy:
       resources:
         limits:
           cpus: "2"
-          memory: 2G
+          memory: 4G
 
   # ── Ray Worker 2 ─────────────────────────────────────────────────────────────
   ray-worker-2:
@@ -70,13 +73,14 @@ services:
         condition: service_healthy
     volumes:
       - atus-data:/app/data
+      - ../data/raw:/app/data/raw:ro
     networks:
       - atus-net
     deploy:
       resources:
         limits:
           cpus: "2"
-          memory: 2G
+          memory: 4G
 
   # ── ETL (one-shot) ────────────────────────────────────────────────────────────
   etl:
@@ -91,10 +95,11 @@ services:
       ray-head:
         condition: service_healthy
     environment:
-      - RAY_ADDRESS=ray-head:6379
+      - RAY_ADDRESS=ray://ray-head:10001
     volumes:
       - atus-data:/app/data
       - ../data/raw:/app/data/raw:ro
+      - ../src:/app/src:ro
     networks:
       - atus-net
 
@@ -111,8 +116,10 @@ services:
       ray-head:
         condition: service_healthy
     environment:
-      - RAY_ADDRESS=ray-head:6379
+      - RAY_ADDRESS=ray://ray-head:10001
     volumes:
       - atus-data:/app/data
+      - ../data/raw:/app/data/raw:ro
+      - ../src:/app/src:ro
     networks:
       - atus-net

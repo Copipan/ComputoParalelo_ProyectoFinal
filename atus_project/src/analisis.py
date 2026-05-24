@@ -25,8 +25,7 @@ def leer_parquet_todos(parquet_dir: str) -> pd.DataFrame:
 # ── Tareas Ray ───────────────────────────────────────────────────────────────
 
 @ray.remote
-def analisis_por_entidad(df_ref) -> dict:
-    df = ray.get(df_ref)
+def analisis_por_entidad(df) -> dict:
     resultado = (
         df.groupby(["ID_ENTIDAD", "NOM_ENTIDAD"])
         .agg(
@@ -42,8 +41,7 @@ def analisis_por_entidad(df_ref) -> dict:
 
 
 @ray.remote
-def analisis_por_municipio(df_ref, top_n: int = 50) -> dict:
-    df = ray.get(df_ref)
+def analisis_por_municipio(df, top_n: int = 50) -> dict:
     resultado = (
         df.groupby(["ID_ENTIDAD", "NOM_ENTIDAD", "ID_MUNICIPIO"])
         .agg(
@@ -59,9 +57,7 @@ def analisis_por_municipio(df_ref, top_n: int = 50) -> dict:
 
 
 @ray.remote
-def analisis_temporal(df_ref) -> dict:
-    df = ray.get(df_ref)
-
+def analisis_temporal(df) -> dict:
     por_hora = (
         df[df["ID_HORA"].between(0, 23)]
         .groupby("ID_HORA")
@@ -108,9 +104,7 @@ def analisis_temporal(df_ref) -> dict:
 
 
 @ray.remote
-def analisis_causas(df_ref) -> dict:
-    df = ray.get(df_ref)
-
+def analisis_causas(df) -> dict:
     causas = (
         df.dropna(subset=["NOM_CAUSA"])
         .groupby("NOM_CAUSA")
@@ -137,9 +131,7 @@ def analisis_causas(df_ref) -> dict:
 
 
 @ray.remote
-def analisis_gravedad(df_ref) -> dict:
-    df = ray.get(df_ref)
-
+def analisis_gravedad(df) -> dict:
     # Accidentes con fallecidos
     graves = df[df["TOTAL_MUERTOS"] > 0]
     por_entidad_graves = (
@@ -176,6 +168,12 @@ def ejecutar_analisis(parquet_dir: str, reports_dir: str) -> dict:
     print("Cargando datos...")
     t0 = time.time()
     df = leer_parquet_todos(parquet_dir)
+    cols_needed = [
+        "ID_ENTIDAD", "NOM_ENTIDAD", "ID_MUNICIPIO", "ANIO", "MES",
+        "ID_HORA", "DIASEMANA", "TOTAL_MUERTOS", "TOTAL_HERIDOS",
+        "GRAVEDAD", "NOM_CAUSA", "NOM_TIPACCID"
+    ]
+    df = df[[c for c in cols_needed if c in df.columns]]        
     print(f"  {len(df):,} registros cargados ({time.time()-t0:.1f}s)")
 
     # Poner el DataFrame en el object store de Ray una sola vez
