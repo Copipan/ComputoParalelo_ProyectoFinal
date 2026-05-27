@@ -1,4 +1,4 @@
-# 🚦 ATUS México — Análisis Distribuido de Accidentes Viales
+# ATUS México — Análisis Distribuido de Accidentes Viales
 
 Sistema distribuido con **Python + Ray + Docker + Streamlit** para procesar y visualizar los datos ATUS del INEGI (1997–2024).
 
@@ -9,7 +9,7 @@ Sistema distribuido con **Python + Ray + Docker + Streamlit** para procesar y vi
 ```
 atus_project/
 ├── src/
-│   ├── etl.py          # Limpieza CSV → Parquet (distribuido con Ray)
+│   ├── etl.py          # Limpieza CSV → Parquet
 │   └── analisis.py     # Cálculo de indicadores (distribuido con Ray)
 ├── dashboard/
 │   └── app.py          # Dashboard Streamlit
@@ -18,7 +18,7 @@ atus_project/
 │   ├── Dockerfile.worker   # Worker nodes
 │   └── docker-compose.yml  # Orquestación completa
 ├── data/
-│   ├── raw/            # ← Coloca aquí tus CSVs del ATUS
+│   ├── raw/            # Aquí se encuentran los archivos sin procesar ATUS
 │   ├── parquet/        # Generado por ETL
 │   └── reports/        # JSON con resultados del análisis
 └── requirements.txt
@@ -35,57 +35,30 @@ CSVs raw  →  ETL (Ray)  →  Parquet  →  Análisis (Ray)  →  JSON  →  Da
 ---
 
 ## Inicio rápido
-
-### 1. Coloca tus archivos CSV
-
 ```bash
-# Nombra tus archivos así (como los tienes):
-data/raw/atus_anual_1997.csv
-data/raw/atus_anual_1998.csv
-...
-data/raw/atus_anual_2024.csv
-```
+# 1. Clonar o copiar el proyecto y entrar a la carpeta docker
+cd atus_project/docker
 
-### 2. Levanta el clúster
+# 2. Colocar los CSVs del INEGI en:
+#    atus_project/data/raw/atus_anual_1997.csv ... atus_anual_2024.csv
 
-```bash
-cd docker
+# 3. Construir imágenes y levantar el clúster
+docker compose build
 docker compose up -d ray-head ray-worker-1 ray-worker-2
+
+# 4. Verificar que los 3 contenedores estén corriendo
+docker ps
+
+# 5. ETL: convertir CSVs a Parquet
+docker exec atus-ray-head python3 src/etl.py
+
+# 6. Análisis distribuido: generar resultados
+docker exec atus-ray-head python3 src/analisis.py
+
+# 7. Abrir el dashboard
+# http://localhost:8501
 ```
 
-Espera ~30 segundos a que Ray esté listo.
-
-### 3. Ejecuta el ETL
-
-```bash
-docker compose --profile etl up etl
-```
-
-Esto convierte todos los CSVs a Parquet optimizados en `data/parquet/`.
-
-### 4. Ejecuta el análisis
-
-```bash
-docker compose --profile analisis up analisis
-```
-
-Genera `data/reports/resultados.json` con todos los indicadores.
-
-### 5. Abre el dashboard
-
-```
-http://localhost:8501
-```
-
-### 6. (Opcional) Benchmark Ray vs Pandas
-
-```bash
-docker exec atus-ray-head python src/analisis.py benchmark
-```
-
-Guarda `data/reports/benchmark.json` y lo muestra en la pestaña Benchmark del dashboard.
-
----
 
 ## Acceso a los paneles
 
@@ -121,6 +94,7 @@ docker compose up -d --scale ray-worker-1=4
 | `PEATMUERTO/HERIDO` | Víctimas peatones |
 | `CICLMUERTO/HERIDO` | Víctimas ciclistas |
 | `GRAVEDAD` | Índice calculado: muertos×3 + heridos |
+| `...` | ... |
 
 ---
 
