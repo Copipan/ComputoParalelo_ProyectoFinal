@@ -35,46 +35,28 @@ CSVs raw  →  ETL (Ray)  →  Parquet  →  Análisis (Ray)  →  JSON  →  Da
 ---
 
 ## Inicio rápido
-
-### 1. Coloca tus archivos CSV
-
 ```bash
-# Se usa la misma nomenclatura del INEGI:
-data/raw/atus_anual_1997.csv
-data/raw/atus_anual_1998.csv
-...
-data/raw/atus_anual_2024.csv
-```
+# 1. Clonar o copiar el proyecto y entrar a la carpeta docker
+cd atus_project/docker
 
-### 2. Levanta el clúster
+# 2. Colocar los CSVs del INEGI en:
+#    atus_project/data/raw/atus_anual_1997.csv ... atus_anual_2024.csv
 
-```bash
-cd docker
+# 3. Construir imágenes y levantar el clúster
+docker compose build
 docker compose up -d ray-head ray-worker-1 ray-worker-2
-```
 
-Espera ~30 segundos a que Ray esté listo.
+# 4. Verificar que los 3 contenedores estén corriendo
+docker ps
 
-### 3. Ejecuta el ETL
+# 5. ETL: convertir CSVs a Parquet
+docker exec atus-ray-head python3 src/etl.py
 
-```bash
-docker compose --profile etl up etl
-```
+# 6. Análisis distribuido: generar resultados
+docker exec atus-ray-head python3 src/analisis.py
 
-Esto convierte todos los CSVs a Parquet optimizados en `data/parquet/`.
-
-### 4. Ejecuta el análisis
-
-```bash
-docker compose --profile analisis up analisis
-```
-
-Genera `data/reports/resultados.json` con todos los indicadores.
-
-### 5. Abre el dashboard
-
-```
-http://localhost:8501
+# 7. Abrir el dashboard
+# http://localhost:8501
 ```
 
 
