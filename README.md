@@ -1,4 +1,4 @@
-# 🚦 ATUS México — Análisis Distribuido de Accidentes Viales
+# ATUS México — Análisis Distribuido de Accidentes Viales
 
 Sistema distribuido con **Python + Ray + Docker + Streamlit** para procesar y visualizar los datos ATUS del INEGI (1997–2024).
 
@@ -9,7 +9,7 @@ Sistema distribuido con **Python + Ray + Docker + Streamlit** para procesar y vi
 ```
 atus_project/
 ├── src/
-│   ├── etl.py          # Limpieza CSV → Parquet (distribuido con Ray)
+│   ├── etl.py          # Limpieza CSV → Parquet
 │   └── analisis.py     # Cálculo de indicadores (distribuido con Ray)
 ├── dashboard/
 │   └── app.py          # Dashboard Streamlit
@@ -77,15 +77,6 @@ Genera `data/reports/resultados.json` con todos los indicadores.
 http://localhost:8501
 ```
 
-### 6. (Opcional) Benchmark Ray vs Pandas
-
-```bash
-docker exec atus-ray-head python src/analisis.py benchmark
-```
-
-Guarda `data/reports/benchmark.json` y lo muestra en la pestaña Benchmark del dashboard.
-
----
 
 ## Acceso a los paneles
 
@@ -123,7 +114,7 @@ docker compose up -d --scale ray-worker-1=4
 | `GRAVEDAD` | Índice calculado: muertos×3 + heridos |
 
 ---
-
+...
 ## Tecnologías
 
 - **Python 3.11**
