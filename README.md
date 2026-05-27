@@ -18,7 +18,7 @@ atus_project/
 │   ├── Dockerfile.worker   # Worker nodes
 │   └── docker-compose.yml  # Orquestación completa
 ├── data/
-│   ├── raw/            # ← Coloca aquí tus CSVs del ATUS
+│   ├── raw/            # Aquí se encuentran los archivos sin procesar ATUS
 │   ├── parquet/        # Generado por ETL
 │   └── reports/        # JSON con resultados del análisis
 └── requirements.txt
@@ -39,7 +39,7 @@ CSVs raw  →  ETL (Ray)  →  Parquet  →  Análisis (Ray)  →  JSON  →  Da
 ### 1. Coloca tus archivos CSV
 
 ```bash
-# Nombra tus archivos así (como los tienes):
+# Se usa la misma nomenclatura del INEGI:
 data/raw/atus_anual_1997.csv
 data/raw/atus_anual_1998.csv
 ...
@@ -112,9 +112,10 @@ docker compose up -d --scale ray-worker-1=4
 | `PEATMUERTO/HERIDO` | Víctimas peatones |
 | `CICLMUERTO/HERIDO` | Víctimas ciclistas |
 | `GRAVEDAD` | Índice calculado: muertos×3 + heridos |
+| `...` | ... |
 
 ---
-...
+
 ## Tecnologías
 
 - **Python 3.11**
