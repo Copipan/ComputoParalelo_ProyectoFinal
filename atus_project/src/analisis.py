@@ -217,68 +217,10 @@ def ejecutar_analisis(parquet_dir: str, reports_dir: str) -> dict:
     return resultados
 
 
-# ── Benchmark ────────────────────────────────────────────────────────────────
-
-def benchmark(parquet_dir: str) -> dict:
-    """Compara tiempo Ray vs Pandas secuencial."""
-    df = leer_parquet_todos(parquet_dir)
-
-    # Secuencial
-    t0 = time.time()
-    _ = df.groupby("NOM_ENTIDAD").agg(total=("ANIO", "count"), muertos=("TOTAL_MUERTOS", "sum"))
-    _ = df.groupby("ID_HORA").size()
-    _ = df.groupby("MES").size()
-    _ = df.groupby("NOM_CAUSA").size()
-    _ = df[df["TOTAL_MUERTOS"] > 0].groupby("NOM_ENTIDAD").size()
-    tiempo_seq = time.time() - t0
-
-    # Ray
-    if not ray.is_initialized():
-        head = os.environ.get("RAY_ADDRESS", "ray-head:6379"); ray.init(address=head, ignore_reinit_error=True)
-
-    t0 = time.time()
-    df_ref = ray.put(df)
-    fs = [
-        analisis_por_entidad.remote(df_ref),
-        analisis_temporal.remote(df_ref),
-        analisis_causas.remote(df_ref),
-        analisis_gravedad.remote(df_ref),
-    ]
-    ray.get(fs)
-    tiempo_ray = time.time() - t0
-
-    speedup = tiempo_seq / tiempo_ray if tiempo_ray > 0 else 0
-
-    resultado = {
-        "registros": len(df),
-        "tiempo_secuencial_s": round(tiempo_seq, 3),
-        "tiempo_ray_s": round(tiempo_ray, 3),
-        "speedup": round(speedup, 2),
-    }
-
-    print(f"\n{'='*40}")
-    print(f"  BENCHMARK")
-    print(f"{'='*40}")
-    print(f"  Registros        : {len(df):,}")
-    print(f"  Secuencial       : {tiempo_seq:.3f}s")
-    print(f"  Ray distribuido  : {tiempo_ray:.3f}s")
-    print(f"  Speedup          : {speedup:.2f}x")
-    print(f"{'='*40}\n")
-
-    return resultado
 
 
 if __name__ == "__main__":
-    import sys
     parquet_dir = "/app/data/parquet"
     reports_dir = "/app/data/reports"
     os.makedirs(reports_dir, exist_ok=True)
-
-    if len(sys.argv) > 1 and sys.argv[1] == "benchmark":
-        resultado = benchmark(parquet_dir)
-        bm_path = os.path.join(reports_dir, "benchmark.json")
-        with open(bm_path, "w", encoding="utf-8") as f:
-            json.dump(resultado, f, ensure_ascii=False, indent=2)
-        print(f"Benchmark guardado en: {bm_path}")
-    else:
-        ejecutar_analisis(parquet_dir, reports_dir)
+    ejecutar_analisis(parquet_dir, reports_dir)
