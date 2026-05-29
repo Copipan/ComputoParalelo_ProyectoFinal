@@ -9,7 +9,6 @@ import glob
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-import ray
 
 BASE_DIR    = "/app"
 RAW_DIR     = os.path.join(BASE_DIR, "data", "raw")
@@ -128,26 +127,9 @@ def limpiar_csv(path: str) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-@ray.remote
-def procesar_archivo_ray(path_abs: str, salida_dir_abs: str) -> dict:
-    import pandas as pd
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-    import os, sys
 
-    sys.path.insert(0, "/app/src")
-    from etl import limpiar_csv
-
-    nombre = os.path.basename(path_abs).replace(".csv", "").replace(".CSV", "")
-    salida  = os.path.join(salida_dir_abs, f"{nombre}.parquet")
-
-    df    = limpiar_csv(path_abs)
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    pq.write_table(table, salida, compression="snappy")
-
-    return {"archivo": nombre, "registros": len(df), "ruta": salida}
-
-
+# Los CSVs solo están montados en el head. El procesamiento distribuido
+# ocurre en analisis.py sobre los Parquet del volumen compartido.
 def etl_secuencial(raw_dir: str, parquet_dir: str) -> list:
     archivos = sorted(glob.glob(os.path.join(raw_dir, "*.csv")))
     resultados = []
@@ -160,19 +142,6 @@ def etl_secuencial(raw_dir: str, parquet_dir: str) -> list:
         resultados.append({"archivo": nombre, "registros": len(df)})
     return resultados
 
-
-def etl_distribuido(raw_dir: str, parquet_dir: str) -> list:
-    # Conectar al Ray local (ya iniciado por ray start en el head)
-    if not ray.is_initialized():
-        ray.init(address="auto", ignore_reinit_error=True)
-
-    archivos = sorted(glob.glob(os.path.join(raw_dir, "*.csv")))
-    if not archivos:
-        raise FileNotFoundError(f"No se encontraron CSVs en {raw_dir}")
-
-    print(f"  Archivos encontrados: {len(archivos)}")
-    futures = [procesar_archivo_ray.remote(p, parquet_dir) for p in archivos]
-    return ray.get(futures)
 
 
 if __name__ == "__main__":
